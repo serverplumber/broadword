@@ -45,7 +45,7 @@ func countMarkedLanes(marks uint64) uint64 {
 	return (marks >> 7) * low8 >> 56
 }
 
-// updateSelectOne returns the position of the k-th 1 in the 64-bit word x.
+// updateSelectOne returns the position of the n-th 1 in the 64-bit word x.
 // k is 0-based, so k=0 returns the position of the first 1.
 // The result is 64 if x contains n or fewer one bits.
 //
@@ -65,30 +65,6 @@ func updateSelectOne(x uint64, n int) int {
 	// backend has SUBshiftRL/ANDshiftRL/ORshiftLL rules to match.
 	// Verify with `go build -gcflags=-S` that the fused forms are actually
 	// being emitted before relying on this.
-
-	// TODO(amd64): x86 has had BMI2's PDEP/TZCNT since Haswell (2013), doing
-	// select in ~2 instructions and making this whole broadword reduction
-	// unnecessary on that hardware. There's no way to get the Go compiler to
-	// emit PDEP from this source: math/bits doesn't expose Pdep/Pext the way
-	// e.g. Rust's core::arch does, and Go has no auto-vectorizer that could
-	// pattern-match this reduction back into one instruction. The only path
-	// is hand-written assembly, called instead of this function on capable
-	// hardware:
-
-	// TODO(amd64): BMI2 isn't guaranteed on every amd64 CPU -- it arrived
-	// with Haswell, and Go's default GOAMD64=v1 build baseline doesn't
-	// assume it's present. A bare build-tag dispatch to selectPDEP would
-	// SIGILL on older or budget hardware. Two options: require GOAMD64=v3 at
-	// build time (simplest, but pushes the requirement onto whoever builds
-	// this), or detect the feature at runtime via
-	// golang.org/x/sys/cpu.X86.HasBMI2 and choose between selectPDEP and
-	// this function through a package-level func var set in init() -- the
-	// same pattern the standard library uses elsewhere for AES-NI/SSE4.2
-	// style dispatch. Either way: Go's inliner does not cross into
-	// hand-written assembly, so selectPDEP is always a real call, and the
-	// func-var indirection adds another indirect call on top of that --
-	// worth benchmarking against just calling this Go version directly,
-	// since select64 is small enough that call overhead could eat the win.
 
 	// phase 1: lane i := popcount of byte i of word.
 	laneOnes := x - ((x & (0xA * low4)) >> 1)

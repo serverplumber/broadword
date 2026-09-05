@@ -11,11 +11,11 @@ import (
 // used as the oracle for differential testing. It has to be obviously
 // correct by construction, so it should not share any of selectOne's
 // broadword bit tricks.
-func naiveSelectOne(x uint64, k int) int {
-	if k < 0 || k >= 64 {
+func naiveSelectOne(x uint64, n int) int {
+	if n < 0 || n >= 64 {
 		return 64
 	}
-	s := uint64(k) + 1
+	s := uint64(n) + 1
 	var r uint64 = 0
 	for i := range 64 {
 		r += (x >> i) & 1
@@ -26,8 +26,8 @@ func naiveSelectOne(x uint64, k int) int {
 	return 64
 }
 
-// TestSelect64 checks select64 against known edge cases, comparing it
-// against naiveSelect64 rather than hand-computed constants.
+// TestSelectOne checks selectOne against known edge cases, comparing it
+// against naiveSelectOne rather than hand-computed constants.
 func TestSelectOne(t *testing.T) {
 	tests := []struct {
 		name string
@@ -68,7 +68,7 @@ func TestSelectOne(t *testing.T) {
 	}
 }
 
-// FuzzSelect64 differentially tests select64 against naiveSelect64 across
+// FuzzSelectOne differentially tests selectOne against naiveSelectOne across
 // a wide range of (x, k) inputs, to cover cases a hand-written table won't
 // think to include.
 
@@ -84,12 +84,14 @@ func FuzzSelectOne(f *testing.F) {
 }
 
 var sink int
+var hitRate float64 = 0.85
 
-// genPairs returns n (x, k) pairs for benchmarking selectOne.
+// genPairs returns n(x, p) pairs for benchmarking selectOne.
 //
 // x is generated bit-by-bit, each bit independently set with probability p,
-// so popcount(x) follows Binomial(64, p) -- p=0.85 mimics a word near
-// defaultMaxLoad, a lower p a sparser one. k is drawn uniformly from
+// so popcount(x) follows Binomial(64, p). p=0.85 mimics a word near the load
+// one might use on if one were building a filter with this primitive,
+// a lower p a sparser one. k is drawn uniformly from
 // [0, 64), independent of x, so whether a given pair is a hit
 // (k < popcount(x)) or a miss falls out of that relationship rather than
 // being chosen separately: the resulting hit rate is a consequence of p,
@@ -115,16 +117,20 @@ func genPairs(n int, p float64) []struct {
 	return pairs
 }
 
-// BenchmarkSelectOne measures selectOne's cost per call. It sits on the
-// CQF's hot path (rank/select over slot metadata words), so this is what
-// would catch a regression in it going forward.
+// BenchmarkSelectOne measures selectOne's cost per call.
 //
 // Inputs are precomputed by genPairs before the timer starts, so setup
 // cost isn't counted, and cycled through during the loop so the CPU's
 // branch predictor doesn't just memorize a single repeated outcome for
 // the early-return check at the top of selectOne.
+//
+// I use a hit rate of .85 which is the fill rate one would use on a quotient
+// filter, which is what I had in mind when I started building this. Change
+// the hit rate if you want to benchmark it for different applications. The
+// code exits early in some cases on a miss. If your hit rate is very low
+// the code may run faster for you.
 func BenchmarkSelectOne(b *testing.B) {
-	pairs := genPairs(1024, 0.85)
+	pairs := genPairs(1024, hitRate)
 	b.Run("generic", func(b *testing.B) {
 		var r int
 
