@@ -56,7 +56,7 @@ func countMarkedLanes(marks uint64) uint64 {
 // very well on ARM because ARM gives us logical immediate encoding.
 // AArch64's bitmask immediates encode any pattern which repeats with
 // period 2,4,8,16,32,64. This is exactly the shape of every SWAR mask.
-func updateSelectOne(x uint64, n int) int {
+func genericSelectOne(x uint64, n int) int {
 
 	// TODO(arm64): shifted register operands should make this cheaper than
 	// its instruction count suggests. `SUB Xd, Xn, Xm, LSR #1` folds a shift

@@ -1,4 +1,4 @@
-//go:build !amd64
+//go:build !amd64 || purego
 
 // Copyright (C) Serverplumber. All Rights Reserved.
 
@@ -11,8 +11,4 @@ func archAvailableSelectOne() bool {
 	return false
 }
 
-// archUpdateSelectOne is never called: archAvailableSelectOne always
-// returns false on this platform, so selectOneInitOnce never selects it.
-func archUpdateSelectOne(x uint64, n int) int {
-	panic("selectOne: no arch-specific implementation on this platform")
-}
+var archSelectOne func(uint64, int) int // nil

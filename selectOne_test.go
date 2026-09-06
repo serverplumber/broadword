@@ -61,10 +61,17 @@ func TestSelectOne(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := SelectOne(tt.x, tt.k); got != tt.want {
-				t.Errorf("select64(%#x, %d) = %d, want %d", tt.x, tt.k, got, tt.want)
+			if got := genericSelectOne(tt.x, tt.k); got != tt.want {
+				t.Errorf("genericSelectOne(%#x, %d) = %d, want %d", tt.x, tt.k, got, tt.want)
 			}
 		})
+		if archAvailableSelectOne() {
+			t.Run(tt.name, func(t *testing.T) {
+				if got := SelectOne(tt.x, tt.k); got != tt.want {
+					t.Errorf("selectPDEP(%#x, %d) = %d, want %d", tt.x, tt.k, got, tt.want)
+				}
+			})
+		}
 	}
 }
 
@@ -78,7 +85,7 @@ func FuzzSelectOne(f *testing.F) {
 	f.Add(uint64(1<<13-1), 12)
 	f.Fuzz(func(t *testing.T, x uint64, k int) {
 		if SelectOne(x, k) != naiveSelectOne(x, k) {
-			t.Fatalf("select64(%#x, %d) != naiveSelect64(%#x, %d)", x, k, x, k)
+			t.Fatalf("SelectOne(%#x, %d) != naiveSelectOne(%#x, %d)", x, k, x, k)
 		}
 	})
 }
@@ -137,7 +144,7 @@ func BenchmarkSelectOne(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			p := pairs[i%len(pairs)]
-			r = updateSelectOne(p.x, p.k)
+			r = genericSelectOne(p.x, p.k)
 		}
 		sink = r
 	})
@@ -147,7 +154,7 @@ func BenchmarkSelectOne(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				p := pairs[i%len(pairs)]
-				r = archUpdateSelectOne(p.x, p.k)
+				r = SelectOne(p.x, p.k)
 			}
 			sink = r
 		} else {
