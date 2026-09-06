@@ -84,7 +84,11 @@ func FuzzSelectOne(f *testing.F) {
 	f.Add(uint64(1<<1|1<<3), 0)
 	f.Add(uint64(1<<13-1), 12)
 	f.Fuzz(func(t *testing.T, x uint64, k int) {
-		if SelectOne(x, k) != naiveSelectOne(x, k) {
+		want := naiveSelectOne(x, k)
+		if genericSelectOne(x, k) != want {
+			t.Fatalf("genericSelectOne(%#x, %d) != naiveSelectOne(%#x, %d)", x, k, x, k)
+		}
+		if archAvailableSelectOne() && SelectOne(x, k) != want {
 			t.Fatalf("SelectOne(%#x, %d) != naiveSelectOne(%#x, %d)", x, k, x, k)
 		}
 	})
