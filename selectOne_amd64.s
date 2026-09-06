@@ -26,7 +26,7 @@ TEXT ·selectPDEP(SB), NOSPLIT|NOFRAME, $0-24
 	MOVQ   AX, ret+16(FP)
 	RET
 
-// func notZen3() bool
+// func oldZen() bool
 //
 // Reports whether the running CPU is AMD family 0x17 -- Zen, Zen+, or
 // Zen 2. On those chips PDEP/PEXT are implemented in microcode: cost
