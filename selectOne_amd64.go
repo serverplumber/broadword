@@ -8,7 +8,7 @@ package broadword
 //go:noescape
 func selectPDEP(x uint64, n int) int
 
-// microcodedPDEP is defined in selectOne_amd64.s. The HasBMI2 test below
+// microcodedPDEP is defined in selectOne_amd64.s. The hasBMI test below
 // must be evaluated before it: the family check leans on BMI2 having
 // already ruled out the pre-Excavator parts of AMD family 0x15.
 func microcodedPDEP() bool
