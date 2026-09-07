@@ -11,8 +11,11 @@ broadword.SelectOne(0, 0)            // 64 -- not found
 
 `math/bits` covers most of what you want from a 64-bit word. `OnesCount64` compiles to `POPCNT`, `TrailingZeros64` to `TZCNT`. Select is the gap: there is no hardware instruction for it on most architectures and no standard library equivalent, so anything built on rank/select over bit vectors — succinct structures, Elias–Fano sequences, quotient filters — has to bring its own.
 
-This package is that one function, written while porting a counting quotient filter, where select sits on the hot path. The verbose notes are there as I'm learning `go` while writing this. This project is as much a useful function as it is a repo where I document how bit twiddling happens in
-the language.
+This package is that one function, written while porting a counting quotient filter, where select sits on the hot path. 
+
+The comments here are denser than a package this size normally warrants. I did this because this
+repo doubles as a record of how bit-level work is done in `Go`. Where the inliner gives up, what
+the assembler will and will not let us assume, what the CPU feature bits actually mean.
 
 ## API
 
@@ -30,7 +33,7 @@ Two, selected once at package initialisation.
 
 The absence of a table is deliberate. The usual implementations carry a 2 KB `selectInByte` array for the final step; this does it with a broadcast, a mask against the 8×8 diagonal, and a second prefix sum. No table means no cache line to miss and no third party's data vendored into the package.
 
-**amd64** — Hand-written assembly using BMI2. Depositing a single bit at position *n* into `x` with `PDEP` scatters it to exactly the position of the *n*-th set bit; `TZCNT` reads that position off. Two instructions where the broadword reduction needs twenty-odd. Out-of-range `n` deposits nothing, and `TZCNT` of zero is 64, so the boundary case falls out of the instruction semantics rather than needing a branch.
+**amd64** — Hand-written assembly using BMI2. Depositing a single bit at position *n* into `x` with `PDEP` scatters it to exactly the position of the *n*-th set bit; `TZCNT` reads that position off. The whole block reduces to a `PDEP` and a `TZCNT`. Out-of-range `n` deposits nothing, and `TZCNT` of zero is 64, so the boundary case falls out of the instruction semantics rather than needing a branch.
 
 Dispatch resolves once, at package initialisation. A single `bool` records whether the assembly is worth using, and `selectOne` branches on it between two ordinary direct calls — no function variable, no indirect call, and the branch is perfectly predicted after the first iteration. One binary still works everywhere; the CPU is probed at startup, not at build time.
 
@@ -72,7 +75,7 @@ Correctness tests use `hasBMI()`, not the dispatch predicate. On Zen 2 and Excav
 
 Both report a `throughput` and a `latency` variant. The throughput loops issue independent calls that the CPU overlaps, which is what a bulk scan over a bit vector sees. The latency loops feed each result into the next index so the calls serialise, which is closer to a walk down a rank/select structure. Each has a `baseline` sub-benchmark measuring the empty loop; subtract it before quoting a ratio, because at these magnitudes it is a large fraction of the total.
 
-Net of baseline, on a 13th-gen Intel laptop part:
+Net of baseline, on a 13th-gen Intel laptop part. Everything is relative to `selectPDEP` at `1.00×`, so lower is better:
 
 | | generic | `selectPDEP` | `SelectOne` |
 |---|---|---|---|
@@ -111,7 +114,7 @@ Known gaps:
 
   It is not implemented, because `GOAMD64=v3` can tell you `PDEP` *exists* and can never tell you it is *fast*. Zen 2 satisfies v3 in full and carries the microcoded `PDEP` that "The AMD wrinkle" exists to route around, so a v3 build that dropped the runtime probe would silently regress those machines — and putting the probe back restores the second call site and the entire cost. A silent regression on part of a fleet is worse than a loud one. Worth revisiting if a profile ever shows the frame mattering.
 
-Requires `golang.org/x/sys/cpu` for the BMI2 feature bit.
+Requires `golang.org/x/sys/cpu` for the BMI1 and BMI2 feature bits.
 
 ## References
 
