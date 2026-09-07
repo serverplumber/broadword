@@ -42,6 +42,7 @@ That branch lives in a build-tagged file, which is forced rather than chosen. `s
 ## The AMD wrinkle
 
 Checking `cpu.X86.HasBMI2` is not sufficient to decide whether the assembly path is worth taking.
+Both BMI1 and BMI2 need to be there, an little snippet of assembly does the check.
 
 Some AMD parts implement `PDEP` and `PEXT` in microcode. They are present, they report as available, and they are *slow* — cost scales with the population count of the mask instead of the roughly three-cycle single-µop form Intel has shipped since Haswell and AMD ships from Zen 3 onward. On a dense word, the "optimised" path loses to the portable one.
 
@@ -114,7 +115,8 @@ Known gaps:
 
   It is not implemented, because `GOAMD64=v3` can tell you `PDEP` *exists* and can never tell you it is *fast*. Zen 2 satisfies v3 in full and carries the microcoded `PDEP` that "The AMD wrinkle" exists to route around, so a v3 build that dropped the runtime probe would silently regress those machines — and putting the probe back restores the second call site and the entire cost. A silent regression on part of a fleet is worse than a loud one. Worth revisiting if a profile ever shows the frame mattering.
 
-Requires `golang.org/x/sys/cpu` for the BMI1 and BMI2 feature bits.
+No dependencies.
+
 
 ## References
 

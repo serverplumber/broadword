@@ -3,10 +3,6 @@
 
 package broadword
 
-import (
-	"golang.org/x/sys/cpu"
-)
-
 // selectPDEP is defined in selectOne_amd64.s.
 //
 //go:noescape
@@ -17,7 +13,8 @@ func selectPDEP(x uint64, n int) int
 // already ruled out the pre-Excavator parts of AMD family 0x15.
 func microcodedPDEP() bool
 
-func hasBMI() bool { return cpu.X86.HasBMI1 && cpu.X86.HasBMI2 }
+// hasBMI checks for BMI1 and BMI2 instruction set availability
+func hasBMI() bool
 
 func archAvailableSelectOne() bool {
 	return hasBMI() && !microcodedPDEP()
