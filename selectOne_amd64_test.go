@@ -12,14 +12,15 @@ import (
 // defined in selectOne_test.go -- that file has no build constraint, so it
 // compiles alongside this one and both tests read from a single table.
 func TestSelectPDEP(t *testing.T) {
+	if !hasBMI() {
+		t.Skip("BMI/BMI2 unavailable. PDEP cannot execute.")
+	}
 	for _, tt := range selectOneCases {
-		if hasBMI() {
-			t.Run("assembly/"+tt.name, func(t *testing.T) {
-				if got := selectPDEP(tt.x, tt.n); got != tt.want {
-					t.Errorf("selectPDEP(%#x, %d) = %d, want %d", tt.x, tt.n, got, tt.want)
-				}
-			})
-		}
+		t.Run("assembly/"+tt.name, func(t *testing.T) {
+			if got := selectPDEP(tt.x, tt.n); got != tt.want {
+				t.Errorf("selectPDEP(%#x, %d) = %d, want %d", tt.x, tt.n, got, tt.want)
+			}
+		})
 	}
 }
 

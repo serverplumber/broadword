@@ -7,7 +7,9 @@
 // func selectPDEP(x uint64, n int) int
 //
 // Requires BMI1 (TZCNT) and BMI2 (PDEP). Callers must check
-// cpu.X86.HasBMI2 -- on older hardware this SIGILLs.
+// cpu.X86.HasBMI1 && cpu.X86.HasBMI2. Without BMI2, PDEP faults. Without
+// BMI1, TZCNT decodes as BSF, which leaves its destination unmodified on a
+// zero source instead of returning 64 -- a wrong answer rather than a crash.
 //
 // Depositing a single bit at position n into x scatters that bit to the
 // position of the n'th set bit of x; TZCNT then reads it off. PDEP of an
