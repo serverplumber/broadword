@@ -11,7 +11,7 @@ broadword.SelectOne(0, 0)            // 64 -- not found
 
 `math/bits` covers most of what you want from a 64-bit word. `OnesCount64` compiles to `POPCNT`, `TrailingZeros64` to `TZCNT`. Select is the gap: there is no hardware instruction for it on most architectures and no standard library equivalent, so anything built on rank/select over bit vectors — succinct structures, Elias–Fano sequences, quotient filters — has to bring its own.
 
-This package is that one function, written while porting a counting quotient filter, where select sits on the hot path. 
+This package is that one function, written while porting a counting quotient filter, where select sits on the hot path.
 
 The comments here are denser than a package this size normally warrants. I did this because this
 repo doubles as a record of how bit-level work is done in `Go`. Where the inliner gives up, what
@@ -42,7 +42,7 @@ That branch lives in a build-tagged file, which is forced rather than chosen. `s
 ## The AMD wrinkle
 
 Checking `cpu.X86.HasBMI2` is not sufficient to decide whether the assembly path is worth taking.
-Both BMI1 and BMI2 need to be there, an little snippet of assembly does the check.
+Both BMI1 and BMI2 need to be there. A little snippet of assembly does the check.
 
 Some AMD parts implement `PDEP` and `PEXT` in microcode. They are present, they report as available, and they are *slow* — cost scales with the population count of the mask instead of the roughly three-cycle single-µop form Intel has shipped since Haswell and AMD ships from Zen 3 onward. On a dense word, the "optimised" path loses to the portable one.
 
@@ -106,7 +106,9 @@ Early. The API is one function and unlikely to change, but nothing here is tagge
 Known gaps:
 
 - **No arm64 specialisation.** The generic path should do well there — AArch64's logical immediate encoding covers any pattern repeating with period 2/4/8/16/32/64, which is the shape of every SWAR mask, and shifted register operands can fold the reduction's `x - ((x & m) >> 1)` patterns into single ALU ops. Whether Go's backend actually emits the fused forms is unverified; the code carries a note to check with `-gcflags=-S` before anyone relies on it.
+
 - **`SelectOne` is the only export.** The parallel byte comparisons the reduction is built from (`≤` and `≠0` across lanes) are unexported. They're generally useful and may come out later.
+
 - **Dispatch costs a call frame, and in pure Go that is the floor.** `SelectOne` runs 31% slower on throughput and 13% on latency than calling `selectPDEP` directly. That cost is not the branch, and it is no longer an indirect call: an earlier version dispatched through a function variable, and replacing it with a `bool` and a branch moved the measured overhead from 33% to 31%, which is within noise. The indirect call had a single target for the life of the process, and the branch predictor absorbed it completely.
 
   What remains is an extra frame. Go's inliner charges 57 per call site against a budget of 80, so any dispatcher containing two calls is over budget and cannot be inlined — a caller gets `SelectOne` inlined, then a call to `selectOne`, then a call to `selectPDEP`. Every way of arranging the branch has two call sites, so there is nothing to rearrange.
@@ -116,7 +118,6 @@ Known gaps:
   It is not implemented, because `GOAMD64=v3` can tell you `PDEP` *exists* and can never tell you it is *fast*. Zen 2 satisfies v3 in full and carries the microcoded `PDEP` that "The AMD wrinkle" exists to route around, so a v3 build that dropped the runtime probe would silently regress those machines — and putting the probe back restores the second call site and the entire cost. A silent regression on part of a fleet is worse than a loud one. Worth revisiting if a profile ever shows the frame mattering.
 
 No dependencies.
-
 
 ## References
 
