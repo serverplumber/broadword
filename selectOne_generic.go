@@ -45,9 +45,16 @@ func countMarkedLanes(marks uint64) uint64 {
 	return (marks >> 7) * low8 >> 56
 }
 
-// updateSelectOne returns the position of the n-th 1 in the 64-bit word x.
-// k is 0-based, so k=0 returns the position of the first 1.
+// genericSelectOne returns the position of the n-th 1 in the 64-bit word x.
+// n is 0-based, so n=0 returns the position of the first 1.
 // The result is 64 if x contains n or fewer one bits.
+//
+// 64 as the sentinel is a convention borrowed from a counting quotient filter
+// implementation, which uses it without saying why. The reason it is the right
+// value: it is the lowest one that cannot be a real bit position, so comparing
+// against it is a sufficient absence test and no valid result is ever
+// ambiguous. Vigna's Algorithm 2 returns 72 instead; the difference is
+// deliberate.
 //
 // Uses the broadword selection algorithm by Vigna [1]
 // [https://vigna.di.unimi.it/ftp/papers/Broadword.pdf]
@@ -86,6 +93,11 @@ func genericSelectOne(x uint64, n int) int {
 	// A lane is marked when its running total has not yet passed rank. When it
 	// sits strictly before the lane holding the answer. So the number of marks
 	// is exactly the index of the lane holding the answer.
+	// countMarkedLanes gives a lane index; the *8 turns it into a bit offset.
+	// The paper fuses the two as `>> 53 &^ 7`, which is the same value at the
+	// same cost: shifting by 53 instead of 56 leaves the count multiplied by
+	// eight with junk in the low three bits, and the mask clears exactly that
+	// junk. Neither form is cheaper, so this one stays for being readable.
 	lanesBefore := lanesAtMost(prefixOnes, rank*low8)
 	laneShift := countMarkedLanes(lanesBefore) * 8
 

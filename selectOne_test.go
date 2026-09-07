@@ -26,143 +26,224 @@ func naiveSelectOne(x uint64, n int) int {
 	return 64
 }
 
-// TestSelectOne checks selectOne against known edge cases, comparing it
-// against naiveSelectOne rather than hand-computed constants.
-func TestSelectOne(t *testing.T) {
-	tests := []struct {
-		name string
-		x    uint64
-		k    int
-		want int
-	}{
-		{name: "empty word",
-			x: 0, k: 0, want: 64},
-		{name: "first set bit",
-			x: 1<<1 | 1<<3, k: 0, want: 1}, // shift ones into position.
-		{name: "last valid bit for x",
-			x: 1<<1 | 1<<3, k: 1, want: 3},
-		{name: "all bits set, first bit",
-			x: ^uint64(0), k: 0, want: 0},
-		{name: "all bits set, last bit",
-			x: ^uint64(0), k: 63, want: 63},
-		{name: "negative k",
-			x: 1<<1 | 1<<3, k: -1, want: 64},
-		{name: "k >= 64",
-			x: ^uint64(0), k: 64, want: 64},
-		{name: "k >= popcount(x), within range",
-			x: 1<<0 | 1<<1 | 1<<2 | 1<<3 | 1<<4 | 1<<5, k: 6, want: 64},
-		{name: "k within a single byte",
-			x: 1<<0 | 1<<1 | 1<<2 | 1<<3 | 1<<5 | 1<<7, k: 3, want: 3},
-		{name: "answer crosses into second byte",
-			x: 1<<13 - 1, k: 12, want: 12},
-		{name: "answer skips a gap crossing further into the word",
-			x: 1<<12 - 1 | 1<<13 | 1<<33, k: 13, want: 33},
-	}
+// selectOneCases is the edge-case table, shared by TestSelectOne here and by
+// TestSelectPDEP in selectOne_amd64_test.go.
+//
+// It lives in this file precisely because this file carries no build
+// constraint, so it compiles into every configuration and there is exactly one
+// copy. A duplicate in the tagged file would drift the first time either side
+// gained a case, and the amd64 path would quietly stop testing it.
+//
+// Unlike the fuzz targets, these want values are hand-computed rather than
+// taken from naiveSelectOne. That is deliberate: an oracle shared by every
+// assertion cannot catch a misconception baked into the oracle itself, so the
+// table is the one place the expected answers are written out independently.
+var selectOneCases = []struct {
+	name string
+	x    uint64
+	n    int
+	want int
+}{
+	{name: "empty word",
+		x: 0, n: 0, want: 64},
+	{name: "first set bit",
+		x: 1<<1 | 1<<3, n: 0, want: 1}, // shift ones into position.
+	{name: "last valid bit for x",
+		x: 1<<1 | 1<<3, n: 1, want: 3},
+	{name: "all bits set, first bit",
+		x: ^uint64(0), n: 0, want: 0},
+	{name: "all bits set, last bit",
+		x: ^uint64(0), n: 63, want: 63},
+	{name: "negative n",
+		x: 1<<1 | 1<<3, n: -1, want: 64},
+	{name: "n >= 64",
+		x: ^uint64(0), n: 64, want: 64},
+	{name: "n >= popcount(x), within range",
+		x: 1<<0 | 1<<1 | 1<<2 | 1<<3 | 1<<4 | 1<<5, n: 6, want: 64},
+	{name: "n within a single byte",
+		x: 1<<0 | 1<<1 | 1<<2 | 1<<3 | 1<<5 | 1<<7, n: 3, want: 3},
+	{name: "answer crosses into second byte",
+		x: 1<<13 - 1, n: 12, want: 12},
+	{name: "answer skips a gap crossing further into the word",
+		x: 1<<12 - 1 | 1<<13 | 1<<33, n: 13, want: 33},
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := genericSelectOne(tt.x, tt.k); got != tt.want {
-				t.Errorf("genericSelectOne(%#x, %d) = %d, want %d", tt.x, tt.k, got, tt.want)
+// TestSelectOne checks the portable implementation and the exported entry
+// point against selectOneCases. Both run everywhere: genericSelectOne is the
+// implementation under test, and SelectOne exercises whatever init picked,
+// which on a non-amd64 build is the only coverage the exported API gets.
+func TestSelectOne(t *testing.T) {
+	for _, tt := range selectOneCases {
+		t.Run("generic/"+tt.name, func(t *testing.T) {
+			if got := genericSelectOne(tt.x, tt.n); got != tt.want {
+				t.Errorf("genericSelectOne(%#x, %d) = %d, want %d", tt.x, tt.n, got, tt.want)
 			}
 		})
-		if archAvailableSelectOne() {
-			t.Run(tt.name, func(t *testing.T) {
-				if got := SelectOne(tt.x, tt.k); got != tt.want {
-					t.Errorf("selectPDEP(%#x, %d) = %d, want %d", tt.x, tt.k, got, tt.want)
-				}
-			})
-		}
+		t.Run("dispatch/"+tt.name, func(t *testing.T) {
+			if got := SelectOne(tt.x, tt.n); got != tt.want {
+				t.Errorf("SelectOne(%#x, %d) = %d, want %d", tt.x, tt.n, got, tt.want)
+			}
+		})
 	}
 }
 
-// FuzzSelectOne differentially tests selectOne against naiveSelectOne across
-// a wide range of (x, k) inputs, to cover cases a hand-written table won't
+// FuzzGenericSelectOne differentially tests genericSelectOne against naiveSelectOne across
+// a wide range of (x, n) inputs, to cover cases a hand-written table won't
 // think to include.
-
-func FuzzSelectOne(f *testing.F) {
+func FuzzGenericSelectOne(f *testing.F) {
 	f.Add(uint64(0), 0)
 	f.Add(uint64(1<<1|1<<3), 0)
 	f.Add(uint64(1<<13-1), 12)
-	f.Fuzz(func(t *testing.T, x uint64, k int) {
-		want := naiveSelectOne(x, k)
-		if genericSelectOne(x, k) != want {
-			t.Fatalf("genericSelectOne(%#x, %d) != naiveSelectOne(%#x, %d)", x, k, x, k)
-		}
-		if archAvailableSelectOne() && SelectOne(x, k) != want {
-			t.Fatalf("SelectOne(%#x, %d) != naiveSelectOne(%#x, %d)", x, k, x, k)
+	f.Fuzz(func(t *testing.T, x uint64, n int) {
+		want := naiveSelectOne(x, n)
+		if genericSelectOne(x, n) != want {
+			t.Fatalf("genericSelectOne(%#x, %d) != naiveSelectOne(%#x, %d)", x, n, x, n)
 		}
 	})
 }
 
+// sink keeps a benchmark's final result reachable so the loop body can't be
+// optimised away. b.Loop already stops the compiler from eliding the calls
+// themselves, but the baseline sub-benchmarks make no call, and they need to
+// measure the same loop overhead the others carry.
 var sink int
-var hitRate float64 = 0.85
 
-// genPairs returns n(x, p) pairs for benchmarking selectOne.
-//
-// x is generated bit-by-bit, each bit independently set with probability p,
-// so popcount(x) follows Binomial(64, p). p=0.85 mimics a word near the load
-// one might use on if one were building a filter with this primitive,
-// a lower p a sparser one. k is drawn uniformly from
-// [0, 64), independent of x, so whether a given pair is a hit
-// (k < popcount(x)) or a miss falls out of that relationship rather than
-// being chosen separately: the resulting hit rate is a consequence of p,
-// not an extra parameter to juggle.
-func genPairs(n int, p float64) []struct {
+const (
+	// benchN is how many precomputed inputs the benchmarks cycle through.
+	// It MUST be a power of two: the loops index with i&benchMask, not
+	// i%benchN, because len() of a slice is not a compile-time constant and
+	// a modulo against one compiles to a hardware DIVQ. That divide costs
+	// more than either implementation being measured, and it sits inside the
+	// timed region, hiding the difference the benchmark exists to show.
+	benchN    = 1024
+	benchMask = benchN - 1
+
+	// benchDensity is the probability that any given bit of a generated word
+	// is set. 0.85 is the fill factor of a loaded counting quotient filter,
+	// which is the workload this density is meant to mimic. Lower it for
+	// sparser words; the generic path takes its early return more often on a
+	// miss, so a sparse workload will look faster.
+	benchDensity = 0.85
+)
+
+type pair struct {
 	x uint64
-	k int
-} {
-	pairs := make([]struct {
-		x uint64
-		k int
-	}, n)
+	n int
+}
+
+// genPairs returns count (x, n) pairs for the benchmarks.
+//
+// Each bit of x is set independently with probability p, so popcount(x)
+// follows Binomial(64, p). n is drawn uniformly from [0, 64) and independently
+// of x, which makes the hit rate -- the fraction of pairs where n <
+// popcount(x), so the answer is a real position rather than 64 -- a
+// consequence of p rather than a second knob to juggle:
+// P(hit) = E[popcount]/64 = p, exactly.
+//
+// The generator is seeded explicitly. math/rand/v2's top-level functions draw
+// from a per-process randomly seeded source, which would hand every run a
+// different input set and fold that variance into any A/B comparison.
+func genPairs(count int, p float64) []pair {
+	rng := rand.New(rand.NewPCG(1, 2))
+	pairs := make([]pair, count)
 	for i := range pairs {
 		var x uint64
 		for bit := range 64 {
-			if rand.Float64() < p {
+			if rng.Float64() < p {
 				x |= 1 << bit
 			}
 		}
-		pairs[i].x = x
-		pairs[i].k = rand.IntN(64)
+		pairs[i] = pair{x: x, n: rng.IntN(64)}
 	}
 	return pairs
 }
 
-// BenchmarkSelectOne measures selectOne's cost per call.
+// BenchmarkSelectOne measures the portable implementation and the exported
+// entry point. The amd64 assembly is measured by BenchmarkSelectPDEP, in
+// selectOne_amd64_test.go; naming selectPDEP from this file is impossible, and
+// reaching it through a function value would fold an indirect call into one
+// side of the comparison and not the other.
 //
-// Inputs are precomputed by genPairs before the timer starts, so setup
-// cost isn't counted, and cycled through during the loop so the CPU's
-// branch predictor doesn't just memorize a single repeated outcome for
-// the early-return check at the top of selectOne.
+// Read the results in pairs:
 //
-// I use a hit rate of .85 which is the fill rate one would use on a quotient
-// filter, which is what I had in mind when I started building this. Change
-// the hit rate if you want to benchmark it for different applications. The
-// code exits early in some cases on a miss. If your hit rate is very low
-// the code may run faster for you.
+//	throughput/generic vs BenchmarkSelectPDEP/throughput
+//	    the two implementations, each behind a direct call. This is the
+//	    apples-to-apples comparison.
+//	BenchmarkSelectPDEP/throughput vs throughput/dispatch
+//	    the price of resolving selectOne through a package variable, which
+//	    the compiler cannot devirtualise.
+//	throughput/baseline
+//	    the loop with no select in it at all. Subtract it before quoting a
+//	    ratio: at these magnitudes it is not negligible.
+//
+// Throughput vs latency is the other axis. The throughput loops issue
+// independent calls and the CPU overlaps them, which is what a bulk scan over
+// a bit vector sees. The latency loops feed each result back into the next
+// index, serialising the calls, which is closer to a pointer-chasing walk down
+// a rank/select structure. A latency iteration also contains one dependent L1
+// load, so read those numbers against each other and against their baseline,
+// not as a cycle count for the function alone.
+//
+// Inputs are precomputed before the loop. b.Loop starts the timer on its first
+// call, so setup is excluded without an explicit b.ResetTimer.
 func BenchmarkSelectOne(b *testing.B) {
-	pairs := genPairs(1024, hitRate)
-	b.Run("generic", func(b *testing.B) {
-		var r int
+	pairs := genPairs(benchN, benchDensity)
 
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			p := pairs[i%len(pairs)]
-			r = genericSelectOne(p.x, p.k)
-		}
-		sink = r
-	})
-	b.Run("arch-specific", func(b *testing.B) {
-		if archAvailableSelectOne() {
-			var r int
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				p := pairs[i%len(pairs)]
-				r = SelectOne(p.x, p.k)
+	b.Run("throughput", func(b *testing.B) {
+		b.Run("baseline", func(b *testing.B) {
+			i, r := 0, 0
+			for b.Loop() {
+				r = pairs[i&benchMask].n
+				i++
 			}
 			sink = r
-		} else {
-			b.Skip("no arch-specific selectOne")
-		}
+		})
+		b.Run("generic", func(b *testing.B) {
+			i, r := 0, 0
+			for b.Loop() {
+				p := pairs[i&benchMask]
+				i++
+				r = genericSelectOne(p.x, p.n)
+			}
+			sink = r
+		})
+		b.Run("dispatch", func(b *testing.B) {
+			i, r := 0, 0
+			for b.Loop() {
+				p := pairs[i&benchMask]
+				i++
+				r = SelectOne(p.x, p.n)
+			}
+			sink = r
+		})
+	})
+
+	b.Run("latency", func(b *testing.B) {
+		b.Run("baseline", func(b *testing.B) {
+			i, r := 0, 0
+			for b.Loop() {
+				r = pairs[(i+r)&benchMask].n
+				i++
+			}
+			sink = r
+		})
+		b.Run("generic", func(b *testing.B) {
+			i, r := 0, 0
+			for b.Loop() {
+				p := pairs[(i+r)&benchMask]
+				i++
+				r = genericSelectOne(p.x, p.n)
+			}
+			sink = r
+		})
+		b.Run("dispatch", func(b *testing.B) {
+			i, r := 0, 0
+			for b.Loop() {
+				p := pairs[(i+r)&benchMask]
+				i++
+				r = SelectOne(p.x, p.n)
+			}
+			sink = r
+		})
 	})
 }

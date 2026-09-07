@@ -26,21 +26,29 @@ TEXT ·selectPDEP(SB), NOSPLIT|NOFRAME, $0-24
 	MOVQ   AX, ret+16(FP)
 	RET
 
-// func oldZen() bool
+// func microcodedPDEP() bool
 //
-// Reports whether the running CPU is AMD family 0x17 -- Zen, Zen+, or
-// Zen 2. On those chips PDEP/PEXT are implemented in microcode: cost
-// scales with popcount(mask) instead of the ~3-cycle single-uop form
-// everyone else gets, so selectPDEP can lose to the plain broadword
-// path on a dense mask. AMD fixed this starting with Zen 3 (family
-// 0x19), hence the name.
+// Reports whether the running CPU implements PDEP/PEXT in microcode.
+// On those chips cost scales with popcount(mask) instead of the ~3-cycle
+// single-uop form everyone else gets, so selectPDEP can lose to the
+// plain broadword path on a dense mask.
+//
+// Only AMD has shipped a microcoded PDEP, in two families: 0x15
+// (Excavator, AMD's first BMI2 part) and 0x17 (Zen, Zen+, Zen 2). AMD
+// fixed it in Zen 3 (family 0x19).
+//
+// Family 0x15 is excluded wholesale rather than by model number. The
+// earlier cores in it -- Bulldozer, Piledriver, Steamroller -- predate
+// BMI2 entirely, so they cannot reach this check: archAvailableSelectOne
+// tests cpu.X86.HasBMI2 first. Every family 0x15 part that gets here is
+// an Excavator, which saves decoding the split model field.
 //
 // Vendor comes from CPUID leaf 0 (EBX:EDX:ECX spell "AuthenticAMD").
 // Family comes from CPUID leaf 1: bits 11:8 of EAX are the base family;
 // when that field reads 0xF, the true family is 0xF plus the extended
-// family in bits 27:20 (0xF+0x08 == 0x17 for Zen/Zen+/Zen2, 0xF+0x0A ==
+// family in bits 27:20 (0xF+0x06 == 0x15, 0xF+0x08 == 0x17, 0xF+0x0A ==
 // 0x19 for Zen3+).
-TEXT ·oldZen(SB), NOSPLIT|NOFRAME, $0-1
+TEXT ·microcodedPDEP(SB), NOSPLIT|NOFRAME, $0-1
 	MOVL $0, AX
 	CPUID
 	CMPL BX, $0x68747541 // "Auth"
@@ -63,12 +71,16 @@ TEXT ·oldZen(SB), NOSPLIT|NOFRAME, $0-1
 	ADDL CX, BX    // actual family = base + extended
 
 checkFamily:
-	CMPL BX, $0x17
-	JNE  no
-	MOVB $1, ret+0(FP)
-	RET
+	CMPL BX, $0x15 // Excavator
+	JEQ  yes
+	CMPL BX, $0x17 // Zen, Zen+, Zen 2
+	JEQ  yes
 
 no:
 	MOVB $0, ret+0(FP)
+	RET
+
+yes:
+	MOVB $1, ret+0(FP)
 	RET
 
